@@ -22,6 +22,8 @@ The server must expose Paper dialogs. The Java client must have a known protocol
 
 `de.erethon.rhea.zlib.adapter.PacketEventsVersionProvider` calls the public PacketEvents API directly: its Spigot API object is a non-public anonymous implementation, so reflecting on that implementation can silently report an unknown version. Installing a resource pack manually does not send a server pack acknowledgement; the server must offer the pack and receive its successful load status.
 
+Centered text is aligned to whole pixels. Nexo may serialize fractional space advances such as `0.5` as `0`; using half-pixel centering with integer-width native bitmap text would then shorten individual image rows and shift their borders. The regression fixture captures those spacing values from an actual generated Nexo pack. Fonts with fractional advances still require pack processing that preserves their fractional spacing providers.
+
 The host owns native layouts, commands, gameplay, item custody and persistence. Bindings prepare presentation only; business effects belong in action callbacks and existing services. Input inventories keep using zLib's `openInputMenu` and `InputSlots` contract. Virtual selections must close before opening their inventory fallback.
 
 ## Pack status and lifecycle

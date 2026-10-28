@@ -242,11 +242,7 @@ public final class Rhea implements RheaProvider {
                         slotFontName + "_shift_" + (renderShift > 0 ? "p" + renderShift : "m" + -renderShift));
                 Component content = slotLine.content().font(slotFont);
                 if (slot.action() != null) content = interactive(content, slot.action(), player, token, actions, hovers);
-                double offset = switch (slot.align() == null ? "left" : slot.align()) {
-                    case "center" -> Math.floor((slot.width() - slotLine.width()) * 2) / 4;
-                    case "right" -> slot.width() - slotLine.width();
-                    default -> 0;
-                };
+                double offset = horizontalOffset(slot, slotLine);
                 Component overlay = Component.text(spaces(-template.width()) + spaces(slot.x() + offset), NamedTextColor.WHITE)
                         .font(uiFont).append(content)
                         .append(Component.text(spaces(template.width() - slot.x() - offset - slotLine.width())).font(uiFont));
@@ -341,7 +337,16 @@ public final class Rhea implements RheaProvider {
         }
     }
 
-    private static String spaces(double pixels) {
+    static double horizontalOffset(RheaTemplate.Slot slot, SlotLine line) {
+        return switch (slot.align() == null ? "left" : slot.align()) {
+            // Whole-pixel centering keeps native bitmap overlays stable when pack processors truncate spacing.
+            case "center" -> Math.floor((slot.width() - line.width()) / 2);
+            case "right" -> slot.width() - line.width();
+            default -> 0;
+        };
+    }
+
+    static String spaces(double pixels) {
         if (!Double.isFinite(pixels) || pixels * 4 != Math.rint(pixels * 4))
             throw new IllegalArgumentException("Spacing must be a multiple of a quarter pixel");
         if (pixels == 0) return "";
