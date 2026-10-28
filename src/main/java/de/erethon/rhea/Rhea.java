@@ -1,6 +1,5 @@
 package de.erethon.rhea;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
@@ -9,6 +8,7 @@ import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.ShadowColor;
@@ -24,7 +24,9 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /** Shows compiled Rhea pages as Paper dialogs. Keep one instance per plugin. */
-public final class Rhea {
+public final class Rhea implements RheaProvider {
+    private static final ClickCallback.Options CALLBACKS = ClickCallback.Options.builder()
+            .uses(ClickCallback.UNLIMITED_USES).lifetime(java.time.Duration.ofMinutes(30)).build();
     private static final char MINUS_ONE = '\uF000';
     private static final char MINUS_HALF = '\uF014';
     private static final char PLUS_HALF = '\uF015';
@@ -39,6 +41,9 @@ public final class Rhea {
             '\uF00E', '\uF00D', '\uF00C', '\uF00B', '\uF00A'};
 
     private final JavaPlugin plugin;
+    private record Session(Player player, long token) {}
+    private final Map<java.util.UUID, Session> sessions = new HashMap<>();
+    private long sequence;
     private final RheaText text;
     private final Map<String, RheaText> slotFonts = new HashMap<>();
 
@@ -85,7 +90,7 @@ public final class Rhea {
     }
 
     /** Bind the dynamic parts of one dialog before showing it. */
-    public final class DialogBuilder {
+    public final class DialogBuilder implements RheaProvider.Dialog {
         private final RheaTemplate template;
         private final Component title;
         private final Component closeLabel;
@@ -183,7 +188,7 @@ public final class Rhea {
         if (template.resourceBase() == null)
             throw new IllegalStateException("Load templates with RheaTemplate.read(plugin, path) for automatic fonts");
         String path = template.resourceBase() + "fonts/" + slot.fontFile();
-        return slotFonts.computeIfAbsent(path, ignored ->
+        return slotFonts.computeIfAbsent(path + ":" + slot.fontSize() + ":" + slot.fontOversample(), ignored ->
                 new RheaText(plugin.getResource(path), (float) slot.fontSize(), slot.fontOversample()));
     }
 
@@ -216,6 +221,7 @@ public final class Rhea {
                      Map<String, Component> hovers) {
         Objects.requireNonNull(player);
         Objects.requireNonNull(template);
+        long token = begin(player);
         Key uiFont = Key.key(template.font());
         Map<Integer, List<Component>> overlays = new HashMap<>();
         for (var entry : slots.entrySet()) {
@@ -235,7 +241,7 @@ public final class Rhea {
                 Key slotFont = renderShift == 0 ? Key.key(template.namespace(), slotFontName) : Key.key(template.namespace(),
                         slotFontName + "_shift_" + (renderShift > 0 ? "p" + renderShift : "m" + -renderShift));
                 Component content = slotLine.content().font(slotFont);
-                if (slot.action() != null) content = interactive(content, slot.action(), player, actions, hovers);
+                if (slot.action() != null) content = interactive(content, slot.action(), player, token, actions, hovers);
                 double offset = switch (slot.align() == null ? "left" : slot.align()) {
                     case "center" -> Math.floor((slot.width() - slotLine.width()) * 2) / 4;
                     case "right" -> slot.width() - slotLine.width();
@@ -257,7 +263,7 @@ public final class Rhea {
             if (row == 0) line = line.append(Component.text(spaces(WIDTH_GUARD)).font(uiFont));
             for (RheaTemplate.Segment segment : template.rows().get(row)) {
                 Component piece = Component.text(segment.glyph(), NamedTextColor.WHITE).font(uiFont);
-                if (segment.action() != null) piece = interactive(piece, segment.action(), player, actions, hovers);
+                if (segment.action() != null) piece = interactive(piece, segment.action(), player, token, actions, hovers);
                 line = line.append(piece).append(Component.text(MINUS_ONE).font(uiFont));
             }
             for (Component overlay : overlays.getOrDefault(row, List.of())) line = line.append(overlay);
@@ -266,7 +272,7 @@ public final class Rhea {
             if (row + 1 < template.rows().size()) body = body.append(Component.newline());
         }
         Component bodyComponent = body;
-        Dialog dialog = Dialog.create(builder -> builder.empty()
+        io.papermc.paper.dialog.Dialog dialog = io.papermc.paper.dialog.Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(title)
                         .pause(false)
                         .afterAction(DialogBase.DialogAfterAction.NONE)
@@ -276,23 +282,63 @@ public final class Rhea {
                 .type(DialogType.notice(ActionButton.builder(closeLabel).width(120)
                         .action(DialogAction.staticAction(ClickEvent.callback(audience -> {
                             if (audience instanceof Player clicked && clicked.getUniqueId().equals(player.getUniqueId())) {
-                                Bukkit.getScheduler().runTask(plugin, clicked::closeDialog);
+                                dispatch(clicked, token, () -> close(clicked));
                             }
-                        }))).build())));
+                        }, CALLBACKS))).build())));
         player.showDialog(dialog);
     }
 
-    private Component interactive(Component component, String action, Player player,
+    private Component interactive(Component component, String action, Player player, long token,
                                   Map<String, Consumer<Player>> actions, Map<String, Component> hovers) {
         Consumer<Player> callback = actions.get(action);
         if (callback != null) component = component.clickEvent(ClickEvent.callback(audience -> {
             if (audience instanceof Player clicked && clicked.getUniqueId().equals(player.getUniqueId())) {
-                Bukkit.getScheduler().runTask(plugin, () -> callback.accept(clicked));
+                dispatch(clicked, token, () -> callback.accept(clicked));
             }
-        }));
+        }, CALLBACKS));
         Component hover = hovers.get(action);
         if (hover != null) component = component.hoverEvent(HoverEvent.showText(hover));
         return component;
+    }
+
+    long begin(Player player) {
+        long token = ++sequence;
+        sessions.put(player.getUniqueId(), new Session(player, token));
+        return token;
+    }
+
+    boolean current(Player player, long token) {
+        Session session = sessions.get(player.getUniqueId());
+        return plugin.isEnabled() && player.isOnline() && session != null && session.player() == player && session.token() == token;
+    }
+
+    private void dispatch(Player player, long token, Runnable action) {
+        if (!plugin.isEnabled()) return;
+        try { Bukkit.getScheduler().runTask(plugin, () -> { if (current(player, token)) action.run(); }); }
+        catch (org.bukkit.plugin.IllegalPluginAccessException ignored) { /* Plugin stopped between the callback and scheduling. */ }
+    }
+
+    @Override public void close(Player player) {
+        Session session = sessions.get(player.getUniqueId());
+        if (session != null && session.player() == player) {
+            sessions.remove(player.getUniqueId());
+            if (player.isOnline()) player.closeDialog();
+        }
+    }
+
+    @Override public boolean isViewing(Player player) {
+        Session session = sessions.get(player.getUniqueId());
+        return plugin.isEnabled() && player.isOnline() && session != null && session.player() == player;
+    }
+
+    @Override public void closeAll() {
+        var views = List.copyOf(sessions.values());
+        sessions.clear();
+        for (var view : views) {
+            Player player = view.player();
+            if (player.isOnline()) try { player.closeDialog(); }
+            catch (RuntimeException e) { plugin.getLogger().warning("Could not close compiled GUI for " + player.getUniqueId()); }
+        }
     }
 
     private static String spaces(double pixels) {

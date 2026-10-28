@@ -1,5 +1,7 @@
 # Rhea
 
+This ZestianMC fork adds an opt-in zLib integration for per-player graphical/inventory selection. The HTML compiler and renderer belong to Rhea; zLib remains an independent utilities library. See [zLib integration](docs/ZLIB_INTEGRATION.md) for the API, required zLib capability patch and source builds. This fork is not published to the upstream Maven repository; the dependency coordinates below describe upstream Rhea.
+
 Create interactive Minecraft dialogs using HTML and CSS. 
 
 https://github.com/user-attachments/assets/64861348-6e6a-445e-9a0b-decf8dedbd85
