@@ -7,7 +7,7 @@ This fork owns the HTML compiler, templates, renderer, pack tracking and graphic
 ```java
 MenuManager menus = new MenuManager(plugin);
 // Only when PacketEvents is already initialized by the host.
-menus.setClientVersionProvider(new PacketEventsClientVersionAdapter());
+menus.setClientVersionProvider(new PacketEventsVersionProvider());
 RheaGuiManager guis = new RheaGuiManager(plugin, menus);
 guis.enablePacketEventsTracking(plugin);
 RheaTemplate template = RheaTemplate.read(plugin, "rhea/shop.json");
@@ -19,6 +19,8 @@ guis.open(player, template, Component.empty(), Component.text("Close"), requirem
 ```
 
 The server must expose Paper dialogs. The Java client must have a known protocol within the compiled pack's interval and report successful loading of its exact UUID. Old/unknown clients, Bedrock, absent packs and initial render failures use the consumer's inventory fallback once. A generic dialog-capable protocol alone is not enough for a version-specific pack. The renderer is loaded lazily behind `RheaProvider`.
+
+`de.erethon.rhea.zlib.adapter.PacketEventsVersionProvider` calls the public PacketEvents API directly: its Spigot API object is a non-public anonymous implementation, so reflecting on that implementation can silently report an unknown version. Installing a resource pack manually does not send a server pack acknowledgement; the server must offer the pack and receive its successful load status.
 
 The host owns native layouts, commands, gameplay, item custody and persistence. Bindings prepare presentation only; business effects belong in action callbacks and existing services. Input inventories keep using zLib's `openInputMenu` and `InputSlots` contract. Virtual selections must close before opening their inventory fallback.
 
